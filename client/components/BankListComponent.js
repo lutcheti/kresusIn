@@ -12,13 +12,13 @@ var flux = require('../flux/dispatcher');
 var BankListItemComponent = React.createClass({
 
     _onClick: function() {
-        debug('click on a bank item');
         flux.dispatch({
-            type: Events.SELECTED_BANK_CHANGED,
-            bank: this.props.bank
+            type: Events.user.selected_bank,
+            bankId: this.props.bank.id
         });
     },
 
+    // TODO make a real "active" state
     render: function() {
         return (
             <li className="active"><span><a href="#" onClick={this._onClick}>{this.props.bank.name}</a></span></li>
@@ -26,12 +26,12 @@ var BankListItemComponent = React.createClass({
     }
 });
 
-// State: [bank]
+// State: [{name: bankName, id: bankId}]
 var BankListComponent = module.exports = React.createClass({
 
     _bankListListener: function() {
         this.setState({
-            banks: store.banks
+            banks: store.getBanks()
         });
     },
 
@@ -42,11 +42,11 @@ var BankListComponent = module.exports = React.createClass({
     },
 
     componentDidMount: function() {
-        store.on(Events.BANK_LIST_LOADED, this._bankListListener);
+        store.on(Events.server.loaded_banks, this._bankListListener);
     },
 
     componentWillUnmount: function() {
-        store.removeListener(Events.BANK_LIST_LOADED, this._bankListListener);
+        store.removeListener(Events.server.loaded_banks, this._bankListListener);
     },
 
     render: function() {
@@ -57,8 +57,8 @@ var BankListComponent = module.exports = React.createClass({
         });
 
         return (
-            <div className="sec_div">
-                <ul className="top"><span className="topic">Banks</span>
+            <div className="sidebar-list">
+                <ul className="sidebar-sublist"><span className="topic">Banks</span>
                     {banks}
                 </ul>
             </div>

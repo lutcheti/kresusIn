@@ -7,14 +7,14 @@ var debug = require('../Helpers').debug;
 // Global variables
 var store = require('../store');
 
-var $chart = null;
-
 function DEBUG(text) {
     return debug('Chart Component - ' + text);
 }
 
 // Components
 module.exports = React.createClass({
+
+    $chart: null,
 
     getInitialState: function() {
         return {
@@ -28,41 +28,46 @@ module.exports = React.createClass({
     _reload: function() {
         DEBUG('reload');
         this.setState({
-            account:    store.currentAccount,
-            operations: store.operations,
-            categories: store.categories
+            account:    store.getCurrentAccount(),
+            operations: store.getCurrentOperations(),
+            categories: store.getCategories()
         }, this._redraw);
     },
 
     componentDidMount: function() {
-        store.subscribeMaybeGet(Events.OPERATIONS_LOADED, this._reload);
-        store.subscribeMaybeGet(Events.CATEGORIES_LOADED, this._reload);
-        $chart = $('#chart');
+        store.subscribeMaybeGet(Events.server.loaded_operations, this._reload);
+        store.subscribeMaybeGet(Events.server.loaded_categories, this._reload);
+        this.$chart = $('#chart');
     },
 
     componentWillUnmount: function() {
-        store.removeListener(Events.OPERATIONS_LOADED, this._reload);
-        store.removeListener(Events.CATEGORIES_LOADED, this._reload);
+        store.removeListener(Events.server.loaded_operations, this._reload);
+        store.removeListener(Events.server.loaded_categories, this._reload);
     },
 
     _redraw: function() {
         DEBUG('redraw');
         switch (this.state.kind) {
             case 'all':
-                CreateChartAllByCategoryByMonth(this.state.operations);
+                CreateChartAllByCategoryByMonth(this.$chart, this.state.operations);
                 break;
             case 'balance':
-                CreateChartBalance(this.state.account, this.state.operations);
+                CreateChartBalance(this.$chart, this.state.account, this.state.operations);
                 break;
             case 'by-category':
                 var val = this.refs.select.getDOMNode().value;
-                CreateChartByCategoryByMonth(val, this.state.operations);
+                CreateChartByCategoryByMonth(this.$chart, val, this.state.operations);
                 break;
             case 'pos-neg':
-                CreateChartPositiveNegative(this.state.operations);
+                CreateChartPositiveNegative(this.$chart, this.state.operations);
                 break;
             case 'global-pos-neg':
-                CreateChartPositiveNegative(store.getOperationsOfAllAccounts());
+                // Flatten operations
+                var accounts = store.getCurrentBankAccounts();
+                var ops = [];
+                for (var i = 0; i < accounts.length; i++)
+                    ops = ops.concat(accounts[i].operations);
+                CreateChartPositiveNegative(this.$chart, ops);
                 break;
             default:
                 assert(true === false, 'unexpected value in _redraw: ' + this.state.kind);
@@ -106,16 +111,20 @@ module.exports = React.createClass({
         }
 
         return (
-            <div className="chart_block">
-                <ul className="nav nav-tabs my-tab" role="tablist" id="myTab">
-                    <li className={IsActive('all')}><a href="#" onClick={this._onClickAll}>by category</a></li>
-                    <li className={IsActive('by-category')}><a href="#" onClick={this._onClickByCategory}>by category by month</a></li>
-                    <li className={IsActive('balance')}><a href="#" onClick={this._onClickBalance}>balance</a></li>
-                    <li className={IsActive('pos-neg')}><a href="#" onClick={this._onClickPosNeg}>differences (account)</a></li>
-                    <li className={IsActive('global-pos-neg')}><a href="#" onClick={this._onClickGlobalPosNeg}>differences (all)</a></li>
-                </ul>
-                <div className="tab-content ">
-                    <div className="tab-pane active my_tabcont">
+            <div className="top-panel panel panel-default">
+                <div className="panel-heading">
+                    <h3 className="title panel-title">Charts</h3>
+                </div>
+
+                <div className="panel-body">
+                    <ul className="nav nav-pills" role="tablist">
+                        <li role="presentation" className={IsActive('all')}><a href="#" onClick={this._onClickAll}>by category</a></li>
+                        <li role="presentation" className={IsActive('by-category')}><a href="#" onClick={this._onClickByCategory}>by category by month</a></li>
+                        <li role="presentation" className={IsActive('balance')}><a href="#" onClick={this._onClickBalance}>balance</a></li>
+                        <li role="presentation" className={IsActive('pos-neg')}><a href="#" onClick={this._onClickPosNeg}>differences (account)</a></li>
+                        <li role="presentation" className={IsActive('global-pos-neg')}><a href="#" onClick={this._onClickGlobalPosNeg}>differences (all)</a></li>
+                    </ul>
+                    <div className="tab-content">
                         {maybeSelect}
                         <div id='chart'></div>
                     </div>
@@ -126,14 +135,14 @@ module.exports = React.createClass({
 });
 
 // Charts
-function CreateChartByCategoryByMonth(catId, operations) {
+function CreateChartByCategoryByMonth($chart, catId, operations) {
     var ops = operations.slice().filter(function(op) {
         return op.categoryId === catId;
     });
-    CreateChartAllByCategoryByMonth(ops);
+    CreateChartAllByCategoryByMonth($chart, ops);
 }
 
-function CreateChartAllByCategoryByMonth(operations) {
+function CreateChartAllByCategoryByMonth($chart, operations) {
 
     function datekey(op) {
         var d = op.date;
@@ -230,9 +239,9 @@ function CreateChartAllByCategoryByMonth(operations) {
     });
 }
 
-function CreateChartBalance(account, operations) {
+function CreateChartBalance($chart, account, operations) {
 
-    var ops = operations.sort(function (a,b) { return +a.date - +b.date });
+    var ops = operations.slice().sort(function (a,b) { return +a.date - +b.date });
 
     // Date (day) -> sum amounts of this day (scalar)
     var opmap = {};
@@ -271,7 +280,7 @@ function CreateChartBalance(account, operations) {
     });
 }
 
-function CreateChartPositiveNegative(operations) {
+function CreateChartPositiveNegative($chart, operations) {
 
     function datekey(op) {
         var d = op.date;
@@ -321,9 +330,9 @@ function CreateChartPositiveNegative(operations) {
         series.push(serie);
     }
 
-    addSerie('Positive', POS);
-    addSerie('Negative', NEG);
-    addSerie('Balance', BAL);
+    addSerie('Received', POS);
+    addSerie('Paid', NEG);
+    addSerie('Saved', BAL);
 
     var categories = [];
     for (var i = 0; i < dates.length; i++) {
@@ -335,7 +344,7 @@ function CreateChartPositiveNegative(operations) {
         categories.push(str);
     }
 
-    var title = 'Positive / Negative over time';
+    var title = 'Received / Paid / Saved over time';
     var yAxisLegend = 'Amount';
 
     $chart.highcharts({

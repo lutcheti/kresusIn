@@ -1,10 +1,14 @@
-var has = require('./Helpers').has;
-var maybeHas = require('./Helpers').maybeHas;
+var Helpers = require('./Helpers');
+var has = Helpers.has;
+var maybeHas = Helpers.maybeHas;
+var NONE_CATEGORY_ID = Helpers.NONE_CATEGORY_ID;
 
 exports.Bank = function Bank(arg) {
     this.id   = has(arg, 'id')   && arg.id;
     this.name = has(arg, 'name') && arg.name;
     this.uuid = has(arg, 'uuid') && arg.uuid;
+
+    this.accounts = [];
 }
 
 exports.Account = function Account(arg) {
@@ -16,6 +20,8 @@ exports.Account = function Account(arg) {
     this.lastChecked   = has(arg, 'lastChecked') && new Date(arg.lastChecked);
     this.id            = has(arg, 'id') && arg.id;
     this.amount        = has(arg, 'amount') && arg.amount;
+
+    this.operations = [];
 }
 
 function Operation(arg) {
@@ -26,7 +32,7 @@ function Operation(arg) {
     this.raw         = has(arg, 'raw') && arg.raw;
     this.dateImport  = (maybeHas(arg, 'dateImport') && new Date(arg.dateImport)) || 0;
     this.id          = has(arg, 'id') && arg.id;
-    this.categoryId  = arg.categoryId || -1;
+    this.categoryId  = arg.categoryId || NONE_CATEGORY_ID;
 }
 
 exports.Operation = Operation;

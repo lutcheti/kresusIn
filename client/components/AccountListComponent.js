@@ -12,10 +12,9 @@ var flux = require('../flux/dispatcher');
 var AccountListItem = React.createClass({
 
     _onClick: function() {
-        debug('click on a particular account');
         flux.dispatch({
-            type: Events.SELECTED_ACCOUNT_CHANGED,
-            account: this.props.account
+            type: Events.user.selected_account,
+            accountId: this.props.account.id
         });
     },
 
@@ -30,7 +29,7 @@ var AccountListItem = React.createClass({
     }
 });
 
-// State: accounts: [Account]
+// State: accounts: [{id: accountId, title: accountTitle}]
 var AccountListComponent = module.exports = React.createClass({
 
     getInitialState: function() {
@@ -41,16 +40,16 @@ var AccountListComponent = module.exports = React.createClass({
 
     _listener: function() {
         this.setState({
-            accounts: store.accounts
+            accounts: store.getCurrentBankAccounts()
         });
     },
 
     componentDidMount: function() {
-        store.on(Events.ACCOUNTS_LOADED, this._listener);
+        store.on(Events.server.loaded_accounts, this._listener);
     },
 
     componentWillUnmount: function() {
-        store.removeListener(Events.ACCOUNTS_LOADED, this._listener);
+        store.removeListener(Events.server.loaded_accounts, this._listener);
     },
 
     render: function() {
@@ -61,8 +60,8 @@ var AccountListComponent = module.exports = React.createClass({
         });
 
         return (
-            <div className="thr_div">
-                <ul className="top"><span className="topic">Accounts</span>
+            <div className="sidebar-list">
+                <ul className="sidebar-sublist"><span className="topic">Accounts</span>
                     {accounts}
                 </ul>
             </div>

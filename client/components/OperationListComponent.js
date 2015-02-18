@@ -8,6 +8,12 @@ var debug = require('../Helpers').debug;
 var store = require('../store');
 var flux = require('../flux/dispatcher');
 
+// If the length of the short label (of an operation) is smaller than this
+// threshold, the raw label of the operation will be displayed in lieu of the
+// short label, in the operations list.
+// TODO make this a parameter in settings
+const SMALL_TITLE_THRESHOLD = 4;
+
 // Components
 var CategorySelectComponent = React.createClass({
 
@@ -22,7 +28,7 @@ var CategorySelectComponent = React.createClass({
     onChange: function(e) {
         var selectedId = this.dom().value;
         flux.dispatch({
-            type: Events.OPERATION_CATEGORY_CHANGED,
+            type: Events.user.updated_category_of_operation,
             operationId: this.props.operation.id,
             categoryId: selectedId
         });
@@ -77,24 +83,37 @@ var OperationComponent = React.createClass({
     render: function() {
         var op = this.props.operation;
 
-        var maybeDetails, maybeActive;
+        var rowClassName = op.amount > 0 ? "success" : "";
+
+        var label = op.title.length < SMALL_TITLE_THRESHOLD ? op.raw + ' (' + op.title + ')' : op.title;
+
         if (this.state.showDetails) {
-            maybeDetails = <li className="detail"><b>Details: </b>{op.raw}</li>;
-            maybeActive = "toggle-btn active";
-        } else {
-            maybeDetails = "";
-            maybeActive = "toggle-btn";
+            return (
+                <tr className={rowClassName}>
+                    <td>
+                        <a href="#" className="toggle-btn active" onClick={this._toggleDetails}> </a>
+                    </td>
+                    <td colSpan="4" className="text-uppercase">
+                        <ul>
+                            <li>Full label: {op.raw}</li>
+                            <li>Amount: {op.amount}</li>
+                            <li>Category: <CategorySelectComponent operation={op} /></li>
+                        </ul>
+                    </td>
+                </tr>
+            );
         }
 
         return (
-            <ul className="table-row clearfix">
-                <li><a href="#" className={maybeActive} onClick={this._toggleDetails}></a></li>
-                <li>{op.date.toLocaleDateString()}</li>
-                <li>{op.title}</li>
-                <li>{op.amount}</li>
-                <li><CategorySelectComponent operation={op} /></li>
-                {maybeDetails}
-            </ul>
+            <tr className={rowClassName}>
+                <td>
+                    <a href="#" className="toggle-btn" onClick={this._toggleDetails}> </a>
+                </td>
+                <td>{op.date.toLocaleDateString()}</td>
+                <td className="text-uppercase">{label}</td>
+                <td>{op.amount}</td>
+                <td><CategorySelectComponent operation={op} /></td>
+            </tr>
         );
     }
 });
@@ -104,23 +123,26 @@ var OperationsComponent = module.exports = React.createClass({
     getInitialState: function() {
         return {
             account: {initialAmount: 0},
-            operations: []
+            operations: [],
+            filteredOperations: [],
+            isSynchronizing: false
         }
     },
 
     _cb: function() {
         this.setState({
-            account: store.currentAccount,
-            operations: store.operations
-        });
+            account: store.getCurrentAccount(),
+            operations: store.getCurrentOperations(),
+            isSynchronizing: false
+        }, this.onSearchInput_);
     },
 
     componentDidMount: function() {
-        store.subscribeMaybeGet(Events.OPERATIONS_LOADED, this._cb);
+        store.subscribeMaybeGet(Events.server.loaded_operations, this._cb);
     },
 
     componentWillUnmount: function() {
-        store.removeListener(Events.OPERATIONS_LOADED, this._cb);
+        store.removeListener(Events.server.loaded_operations, this._cb);
     },
 
     getTotal: function() {
@@ -159,22 +181,131 @@ var OperationsComponent = module.exports = React.createClass({
 
     onFetchOperations_: function() {
         flux.dispatch({
-            type: Events.RETRIEVE_OPERATIONS_QUERIED
+            type: Events.user.fetched_operations
+        });
+
+        // Change UI to show a message indicating sync.
+        this.setState({
+            isSynchronizing: true
+        });
+    },
+
+    onSearchInput_: function() {
+        var wholeField = this.refs.search.getDOMNode().value;
+
+        if (wholeField.length == 0) {
+            this.setState({
+                filteredOperations: this.state.operations
+            });
+            return;
+        }
+
+        // Parse search field
+        var search = {
+            amount: {
+                low: null,
+                high: null
+            },
+            date: {
+                low: null,
+                high: null
+            },
+            category: null,
+            raw: []
+        };
+
+        wholeField.split(' ').forEach(function(v) {
+            v = v.toLowerCase();
+            if (v.indexOf("c:") === 0) {
+                var catname = v.substring(2);
+                if (catname.length)
+                    search.category = catname;
+            } else if (v.indexOf("a:") === 0) {
+                // expect a:Number,Number
+                v = v.substring(2).split(',');
+                var low = v[0], high = v[1];
+                if (!!low && low.length && +low === +low)
+                    search.amount.low = +low;
+                if (!!high && high.length && +high === +high)
+                    search.amount.high = +high;
+            } else if (v.indexOf("d:") === 0) {
+                // expect d:DD-MM-YYYY,DD-MM-YYYY
+                v = v.substring(2).split(',');
+                var low = +new Date(v[0]), high = +new Date(v[1]);
+                if (low === low)
+                    search.date.low = low;
+                if (high === high)
+                    search.date.high = high;
+            } else {
+                search.raw.push(v);
+            }
+        });
+
+        function contains(where, substring) {
+            return where.toLowerCase().indexOf(substring) !== -1;
+        }
+
+        function filterIf(condition, array, callback) {
+            if (condition)
+                return array.filter(callback);
+            return array;
+        }
+
+        // Filter! Apply most discriminatory / easiest filters first
+        var operations = store.operations.slice();
+
+        operations = filterIf(search.category !== null, operations, function(op) {
+            return contains(store.categoryToLabel(op.categoryId), search.category);
+        });
+
+        operations = filterIf(search.amount.low !== null, operations, function(op) {
+            return op.amount >= search.amount.low;
+        });
+
+        operations = filterIf(search.amount.high !== null, operations, function(op) {
+            return op.amount <= search.amount.high;
+        });
+
+        operations = filterIf(search.date.low !== null, operations, function(op) {
+            return op.date >= search.date.low;
+        });
+
+        operations = filterIf(search.date.high !== null, operations, function(op) {
+            return op.date <= search.date.high;
+        });
+
+        operations = filterIf(search.raw.length > 0, operations, function(op) {
+            for (var i = 0; i < search.raw.length; i++) {
+                var str = search.raw[i];
+                if (!contains(op.raw, str) && !contains(op.title, str))
+                    return false;
+            }
+            return true;
+        });
+
+        this.setState({
+            filteredOperations: operations
         });
     },
 
     render: function() {
-        var ops = this.state.operations.map(function (o) {
+        var ops = this.state.filteredOperations.map(function (o) {
             return (
                 <OperationComponent key={o.id} operation={o} />
             );
         });
 
-        // TODO no inline style
-        var tableFooterStyle = {
-            "bottom": 0,
-            "margin-left": 0
-        };
+        var syncText = this.state.isSynchronizing
+                       ? <div className="last-sync">Fetching your latest bank transactions...</div>
+                       : <div className="input-group">
+                             <div className="last-sync">
+                                 Last synchronization with your bank:
+                                 {' ' + new Date(this.state.account.lastChecked).toLocaleString()}
+                             </div>
+                             <span className="input-group-btn">
+                                 <a className="btn btn-primary pull-right" href='#' onClick={this.onFetchOperations_}>Synchronize now</a>
+                             </span>
+                         </div>
 
         // TODO pagination:
         // let k the number of elements to show by page,
@@ -184,48 +315,76 @@ var OperationsComponent = module.exports = React.createClass({
 
         return (
             <div>
-                <div className="price-block clearfix">
-                    <ul className="main_amt">
-                        <li className="mar_li lblu">
-                            <span className="amt_big">{this.getTotal()} €</span><br/>
-                            <span className="sub1 ">Total amount</span><br/>
-                            <span className="sub2">Last sync: {new Date(this.state.account.lastChecked).toLocaleString()}
-                                                   <a href='#' onClick={this.onFetchOperations_}>(sync now)</a>
-                            </span>
-                        </li>
-                        <li className="mar_li gr">
-                            <span className="amt_big">{this.getPositive()} €</span><br/>
-                            <span className="sub1 ">Ins</span><br/>
-                            <span className="sub2">this month</span>
-                        </li>
-                        <li className="mar_li org">
-                            <span className="amt_big">{this.getNegative()} €</span><br/>
-                            <span className="sub1 ">Outs</span><br/>
-                            <span className="sub2">this month</span>
-                        </li>
-                        <li className="dblu">
-                            <span className="amt_big">{this.getDiff()} €</span><br/>
-                            <span className="sub1 ">Difference</span><br/>
-                            <span className="sub2">this month</span>
-                        </li>
-                    </ul>
-                </div>
-
-                <div className="operation-block">
-                    <div className="title text-uppercase">operations</div>
-                    <div className="operation">
-
-                        <div className="operation-table">
-                            <ul className="table-header clearfix">
-                                <li></li>
-                                <li>DATE</li>
-                                <li>OPERATION</li>
-                                <li>AMOUNT</li>
-                                <li>CATEGORY</li>
-                            </ul>
-                            {ops}
+                <div className="row operation-wells">
+                    <div className="col-xs-3">
+                        <div className="well background-lightblue">
+                            <span className="operation-amount">{this.getTotal()} €</span><br/>
+                            <span className="well-title">Current Balance</span><br/>
+                            <span className="well-sub">As of {new Date(this.state.account.lastChecked).toLocaleDateString()}</span>
                         </div>
                     </div>
+
+                    <div className="col-xs-3">
+                        <div className="well background-green">
+                            <span className="operation-amount">{this.getPositive()} €</span><br/>
+                            <span className="well-title">Received</span><br/>
+                            <span className="well-sub">This month</span>
+                        </div>
+                    </div>
+
+                    <div className="col-xs-3">
+                        <div className="well background-orange">
+                            <span className="operation-amount">{this.getNegative()} €</span><br/>
+                            <span className="well-title">Paid</span><br/>
+                            <span className="well-sub">This month</span>
+                        </div>
+                    </div>
+
+                    <div className="col-xs-3">
+                        <div className="well background-darkblue">
+                            <span className="operation-amount">{this.getDiff()} €</span><br/>
+                            <span className="well-title">Saved</span><br/>
+                            <span className="well-sub">This month</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="operation-panel panel panel-default">
+                    <div className="panel-heading">
+                        <h3 className="title panel-title">Transactions</h3>
+                    </div>
+
+                    <div className="panel-body">
+                        <div className="panel panel-default">
+                            {syncText}
+                        </div>
+
+                        <div className="row">
+                            <div className="col-xs-12">
+                                <div className="input-group">
+                                    <input type="text" className="form-control" onKeyUp={this.onSearchInput_}
+                                       placeholder="label c:categoryName a:-20,50 d:2015-01-01,2014-02-28" ref="search"
+                                       aria-describedby="addon-search" />
+                                    <span className="input-group-addon" id="addon-search">search</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <table className="table table-striped table-hover table-bordered">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>Date</th>
+                                <th>Operation</th>
+                                <th>Amount</th>
+                                <th>Category</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {ops}
+                        </tbody>
+                    </table>
                 </div>
 
             </div>

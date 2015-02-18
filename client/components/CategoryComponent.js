@@ -2,7 +2,9 @@
 
 // Constants
 var Events = require('../Events');
-var debug = require('../Helpers').debug;
+var Helpers = require('../Helpers');
+var debug = Helpers.debug;
+var NONE_CATEGORY_ID = Helpers.NONE_CATEGORY_ID;
 
 // Global variables
 var store = require('../store');
@@ -13,19 +15,98 @@ function NYI(event) {
     event.preventDefault();
 }
 
+function CreateForm(onSave, onCancel, previousValue) {
+
+    function onKeyUp(e) {
+        if (e.keyCode == 13) {
+            return onSave(e);
+        }
+        return true;
+    }
+
+    return (
+        <tr>
+            <td>
+                <input type="text" className="form-control" placeholder='Label'
+                  defaultValue={previousValue || ''} onKeyUp={onKeyUp}
+                  ref="label" />
+            </td>
+            <td>
+                (NYI)
+            </td>
+            <td>
+                <div className="btn-group btn-group-justified" role="group">
+                    <a className="btn btn-success" role="button" onClick={onSave}>save</a>
+                    <a className="btn btn-danger" role="button" onClick={onCancel}>cancel</a>
+                </div>
+            </td>
+        </tr>);
+}
+
 var CategoryListItem = React.createClass({
 
-    // TODO
-    _onEdit: NYI,
+    getInitialState: function() {
+        return {
+            editMode: false
+        }
+    },
+
+    _onSaveEdit: function(e) {
+        var label = this.refs.label.getDOMNode().value.trim();
+        if (!label)
+            return false;
+
+        var category = {
+            title: label
+        };
+
+        flux.dispatch({
+            type: Events.user.updated_category,
+            id: this.props.cat.id,
+            category: category
+        });
+
+        this.setState({
+            editMode: false
+        });
+        e.preventDefault();
+    },
+
+    _onCancelEdit: function(e) {
+        this.setState({
+            editMode: false
+        });
+        e.preventDefault();
+    },
+    _onShowEdit: function(e) {
+        this.setState({
+            editMode: true
+        }, function() {
+            // then
+            this.refs.label.getDOMNode().select();
+        });
+        e.preventDefault();
+    },
 
     // TODO
     _onDelete: NYI,
 
     render: function() {
+
+        if (this.state.editMode)
+            return CreateForm(this._onSaveEdit, this._onCancelEdit, this.props.cat.title);
+
         return (
-            <ul className="table-row clearfix" key={this.props.cat.id}>
-                <li>{this.props.cat.title}</li>
-            </ul>
+            <tr key={this.props.cat.id}>
+                <td>{this.props.cat.title}</td>
+                <td>(NYI)</td>
+                <td>
+                    <div className="btn-group btn-group-justified" role="group">
+                        <a className="btn btn-primary" role="button" onClick={this._onShowEdit}>edit</a>
+                        <a className="btn btn-danger" role="button" onClick={this._onDelete}>delete</a>
+                    </div>
+                </td>
+            </tr>
         );
     }
 });
@@ -34,7 +115,7 @@ module.exports = React.createClass({
 
     _listener: function() {
         this.setState({
-            categories: store.categories
+            categories: store.getCategories()
         });
     },
 
@@ -46,11 +127,11 @@ module.exports = React.createClass({
     },
 
     componentDidMount: function() {
-        store.subscribeMaybeGet(Events.CATEGORIES_LOADED, this._listener);
+        store.subscribeMaybeGet(Events.server.loaded_categories, this._listener);
     },
 
     componentWillUnmount: function() {
-        store.removeListener(Events.CATEGORIES_LOADED, this._listener);
+        store.removeListener(Events.server.loaded_categories, this._listener);
     },
 
     _onShowForm: function(e) {
@@ -72,7 +153,7 @@ module.exports = React.createClass({
         };
 
         flux.dispatch({
-            type: Events.CATEGORY_CREATED,
+            type: Events.user.created_category,
             category: category
         });
 
@@ -84,46 +165,45 @@ module.exports = React.createClass({
     },
 
     render: function() {
-        var items = this.state.categories.map(function (cat) {
-            return (
-                <CategoryListItem cat={cat} key={cat.id} />
-            );
+        var items = this.state.categories
+            .filter(function(cat) { return cat.id != NONE_CATEGORY_ID; })
+            .map(function (cat) {
+                return (
+                    <CategoryListItem cat={cat} key={cat.id} />
+                );
         });
 
-        var maybeForm = this.state.showForm ?
-            (<ul className="table-row clearfix">
-                <li className="input-text">
-                    <input type="text" className="form-control" placeholder="Label" ref="label" />
-                </li>
-                <li className="input-text">
-                    NYI
-                </li>
-                <li>
-                    <a href="#" className="save" onClick={this._onSave}>save</a>
-                    <a href="#" className="cancel" onClick={this._onShowForm}>cancel</a>
-                </li>
-            </ul>)
-            : '';
+        var maybeForm = this.state.showForm ? CreateForm(this._onSave, this._onShowForm)
+                                            : <tr/>;
 
         return (
-            <div className="category-block">
-                <div className="clearfix title text-uppercase">
-                    <span>Add a category</span>
-                    <div className="add-new pull-right">
-                        <a className="text-uppercase" href="#" onClick={this._onShowForm}>add new <strong>+</strong></a>
-                    </div>
+        <div>
+            <div className="top-panel panel panel-default">
+                <div className="panel-heading">
+                    <h3 className="title panel-title">Categories</h3>
                 </div>
-                <div className="category">
-                    <div className="category-table">
-                        <ul className="table-header clearfix">
-                            <li>CATEGORY NAME </li>
-                        </ul>
+
+                <div className="panel-body">
+                    <a className="btn btn-primary text-uppercase pull-right" href="#" onClick={this._onShowForm}>
+                        add a category<strong>+</strong>
+                    </a>
+                </div>
+
+                <table className="table table-striped table-hover table-bordered">
+                    <thead>
+                        <tr>
+                            <th className="col-sm-5">CATEGORY NAME</th>
+                            <th className="col-sm-5">SUPERCATEGORY</th>
+                            <th className="col-sm-2">ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody>
                         {maybeForm}
                         {items}
-                    </div>
-                </div>
+                    </tbody>
+                </table>
             </div>
-        );
+        </div>);
     }
 });
 
