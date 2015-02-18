@@ -1,5 +1,5 @@
 {
-  "name": "kresus",
+  "name": "kresusIn",
   "version": "0.3.1",
   "engines": [
     "node = 0.8.x"
@@ -8,7 +8,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bnjbvr/kresus"
+    "url": "https://github.com/bnjbvr/kresus@incoming"
   },
   "main": "client/main.js",
   "dependencies": {
@@ -42,7 +42,7 @@
     "postinstall": "./node_modules/gulp/bin/gulp.js b",
     "dev": "gulp w"
   },
-  "cozy-displayName": "Kresus",
+  "cozy-displayName": "KresusIn",
   "cozy-permissions": {
     "Bank": {
       "description": "Les banques auxquelles vous pouvez accéder via l'application."
